@@ -30,11 +30,22 @@ class APIKeyError(AIServiceError):
         super().__init__(message, code="API_KEY_ERROR")
 
 
+class AIServiceConfigError(AIServiceError):
+    """Service configuration error."""
+    
+    def __init__(self, message: str = "Lỗi cấu hình dịch vụ AI."):
+        super().__init__(message, code="CONFIG_ERROR")
+
+
 class RateLimitError(AIServiceError):
     """Rate limit exceeded."""
     
     def __init__(self, message: str = "Đã vượt quá giới hạn request. Vui lòng thử lại sau."):
         super().__init__(message, code="RATE_LIMIT_ERROR")
+
+
+# Alias for compatibility
+AIServiceRateLimitError = RateLimitError
 
 
 class QuotaExceededError(AIServiceError):
@@ -65,6 +76,10 @@ class TimeoutError(AIServiceError):
         super().__init__(message, code="TIMEOUT_ERROR")
 
 
+# Alias for compatibility
+AIServiceTimeoutError = TimeoutError
+
+
 class NetworkError(AIServiceError):
     """Network connectivity error."""
     
@@ -84,3 +99,18 @@ class GenerationError(AIServiceError):
     
     def __init__(self, message: str = "Lỗi trong quá trình tạo nội dung.", details: dict = None):
         super().__init__(message, code="GENERATION_ERROR", details=details)
+
+
+class AudioProcessingError(AIServiceError):
+    """Error processing audio file."""
+    
+    def __init__(self, message: str = "Lỗi xử lý file audio.", details: dict = None):
+        super().__init__(message, code="AUDIO_PROCESSING_ERROR", details=details)
+
+
+class TranscriptionError(AIServiceError):
+    """Error during speech-to-text transcription."""
+    
+    def __init__(self, message: str = "Lỗi chuyển đổi giọng nói thành văn bản.", details: dict = None):
+        super().__init__(message, code="TRANSCRIPTION_ERROR", details=details)
+

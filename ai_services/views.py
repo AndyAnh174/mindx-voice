@@ -7,13 +7,15 @@ from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser
 from django.http import StreamingHttpResponse
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
 from .gemini_service import gemini_service
+from .whisper_service import get_whisper_service, TranscriptionResult
 from .models import ChatMessage, MessageRole, PersonaContext, GenerationParams
-from .exceptions import AIServiceError
+from .exceptions import AIServiceError, AIServiceConfigError
 from .serializers import (
     ChatRequestSerializer,
     ChatResponseSerializer,
@@ -219,6 +221,117 @@ class ChatStreamView(APIView):
         return response
 
 
+class TranscribeAudioView(APIView):
+    """
+    API endpoint for Speech-to-Text transcription using Whisper.
+    
+    POST /api/ai/transcribe/
+    
+    Transcribes audio file to text.
+    """
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    
+    @swagger_auto_schema(
+        operation_description="Chuyển đổi giọng nói thành văn bản (Speech-to-Text)",
+        manual_parameters=[
+            openapi.Parameter(
+                "audio",
+                openapi.IN_FORM,
+                type=openapi.TYPE_FILE,
+                required=True,
+                description="File audio (mp3, wav, webm, ogg, m4a, flac)"
+            ),
+            openapi.Parameter(
+                "language",
+                openapi.IN_FORM,
+                type=openapi.TYPE_STRING,
+                required=False,
+                description="Mã ngôn ngữ (vi, en, etc.). Mặc định: vi"
+            ),
+            openapi.Parameter(
+                "prompt",
+                openapi.IN_FORM,
+                type=openapi.TYPE_STRING,
+                required=False,
+                description="Context prompt để hỗ trợ nhận dạng"
+            ),
+        ],
+        responses={
+            200: openapi.Response(
+                description="Transcription result",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "success": openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                        "text": openapi.Schema(type=openapi.TYPE_STRING),
+                        "language": openapi.Schema(type=openapi.TYPE_STRING),
+                        "duration": openapi.Schema(type=openapi.TYPE_NUMBER),
+                    }
+                )
+            ),
+            400: openapi.Response(description="Invalid audio file"),
+            500: openapi.Response(description="Transcription error"),
+        },
+        tags=["AI"]
+    )
+    def post(self, request):
+        """Transcribe audio to text."""
+        # Get audio file
+        audio_file = request.FILES.get("audio")
+        if not audio_file:
+            return Response(
+                {"error": {"code": "MISSING_AUDIO", "message": "Vui lòng upload file audio"}},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        language = request.data.get("language", "vi")
+        prompt = request.data.get("prompt", "")
+        
+        try:
+            whisper = get_whisper_service()
+            
+            # Read file data
+            audio_data = audio_file.read()
+            filename = audio_file.name or "audio.wav"
+            
+            logger.info(f"Transcribing audio: {filename}, size={len(audio_data)}, language={language}")
+            
+            # Transcribe
+            result = whisper.transcribe(
+                audio_data=audio_data,
+                filename=filename,
+                language=language,
+                prompt=prompt if prompt else None,
+            )
+            
+            return Response({
+                "success": True,
+                "text": result.text,
+                "language": result.language,
+                "duration": result.duration,
+            })
+            
+        except AIServiceConfigError as e:
+            logger.warning(f"Whisper not configured: {e}")
+            return Response(
+                {"error": {"code": "NOT_CONFIGURED", "message": "Whisper API chưa được cấu hình"}},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        except AIServiceError as e:
+            logger.error(f"Transcription error: {e.code} - {e.message}")
+            return Response(
+                e.to_dict(),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        except Exception as e:
+            logger.exception(f"Unexpected error in transcription: {e}")
+            return Response(
+                {"error": {"code": "INTERNAL_ERROR", "message": "Lỗi chuyển đổi giọng nói. Vui lòng thử lại."}},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
 class AIHealthView(APIView):
     """
     Health check endpoint for AI services.
@@ -234,9 +347,13 @@ class AIHealthView(APIView):
                     type=openapi.TYPE_OBJECT,
                     properties={
                         "status": openapi.Schema(type=openapi.TYPE_STRING),
-                        "provider": openapi.Schema(type=openapi.TYPE_STRING),
-                        "model": openapi.Schema(type=openapi.TYPE_STRING),
-                        "configured": openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                        "services": openapi.Schema(
+                            type=openapi.TYPE_OBJECT,
+                            properties={
+                                "gemini": openapi.Schema(type=openapi.TYPE_OBJECT),
+                                "whisper": openapi.Schema(type=openapi.TYPE_OBJECT),
+                            }
+                        ),
                     }
                 )
             )
@@ -248,8 +365,21 @@ class AIHealthView(APIView):
         from .config import ai_config
         
         return Response({
-            "status": "ok" if ai_config.gemini.validate() else "not_configured",
-            "provider": ai_config.default_provider,
-            "model": ai_config.gemini.model,
-            "configured": ai_config.gemini.validate(),
+            "status": "ok",
+            "services": {
+                "gemini": {
+                    "status": "ok" if ai_config.gemini.validate() else "not_configured",
+                    "model": ai_config.gemini.model,
+                    "configured": ai_config.gemini.validate(),
+                },
+                "whisper": {
+                    "status": "ok" if ai_config.whisper.validate() else "not_configured",
+                    "model": ai_config.whisper.model,
+                    "configured": ai_config.whisper.validate(),
+                    "supported_formats": ai_config.whisper.supported_formats,
+                    "max_file_size_mb": ai_config.whisper.max_file_size_mb,
+                },
+            },
+            "default_provider": ai_config.default_provider,
         })
+

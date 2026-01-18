@@ -6,9 +6,10 @@ The `urlpatterns` list routes URLs to views. For more information please see:
 """
 
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, include, re_path
 from django.conf import settings
 from django.conf.urls.static import static
+from django.views.generic import TemplateView
 from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
@@ -49,9 +50,12 @@ urlpatterns = [
     path("api/auth/", include("users.urls")),
     path("api/", include("conversations.urls")),
     path("api/ai/", include("ai_services.urls")),
+    # Frontend - Serve index.html for root and all frontend routes
+    path("", TemplateView.as_view(template_name="index.html"), name="frontend"),
 ]
 
 # Serve media files in development
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+

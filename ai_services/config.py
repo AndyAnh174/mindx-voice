@@ -37,10 +37,45 @@ class GeminiConfig:
 
 
 @dataclass
+class WhisperConfig:
+    """Configuration for OpenAI Whisper STT API."""
+    
+    api_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
+    model: str = field(default_factory=lambda: os.getenv("WHISPER_MODEL", "whisper-1"))
+    
+    # Audio settings
+    supported_formats: tuple = ("mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm", "ogg", "flac")
+    max_file_size_mb: int = 25  # OpenAI limit
+    default_language: str = "vi"  # Vietnamese
+    
+    # Transcription parameters
+    response_format: str = "json"  # json, text, srt, verbose_json, vtt
+    
+    # Timeout and retry settings
+    timeout: int = 60  # seconds - audio transcription can be slow
+    max_retries: int = 3
+    retry_min_wait: float = 2.0  # seconds
+    retry_max_wait: float = 30.0  # seconds
+    
+    # Sample rate for audio normalization
+    target_sample_rate: int = 16000  # Whisper optimal sample rate
+    
+    def validate(self) -> bool:
+        """Check if configuration is valid."""
+        return bool(self.api_key)
+    
+    def is_supported_format(self, filename: str) -> bool:
+        """Check if audio format is supported."""
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        return ext in self.supported_formats
+
+
+@dataclass
 class AIServiceConfig:
     """Main AI service configuration."""
     
     gemini: GeminiConfig = field(default_factory=GeminiConfig)
+    whisper: WhisperConfig = field(default_factory=WhisperConfig)
     
     # Default provider
     default_provider: str = "gemini"
@@ -54,6 +89,7 @@ class AIServiceConfig:
         """Create config from environment variables."""
         return cls(
             gemini=GeminiConfig(),
+            whisper=WhisperConfig(),
             default_provider=os.getenv("AI_PROVIDER", "gemini"),
             log_requests=os.getenv("AI_LOG_REQUESTS", "true").lower() == "true",
             log_responses=os.getenv("AI_LOG_RESPONSES", "true").lower() == "true",
@@ -62,3 +98,4 @@ class AIServiceConfig:
 
 # Global config instance
 ai_config = AIServiceConfig.from_env()
+
